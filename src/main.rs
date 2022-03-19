@@ -1,6 +1,7 @@
+use adw::prelude::*;
 use gtk::prelude::{BoxExt, WidgetExt, OrientableExt, GtkWindowExt, EntryExt, EntryBufferExtManual, CheckButtonExt};
 use relm4::factory::{FactoryPrototype, FactoryVec};
-use relm4::{gtk, send, Model, AppUpdate, RelmApp, Widgets, WidgetPlus, Sender};
+use relm4::{adw, gtk, send, Model, AppUpdate, RelmApp, Widgets, WidgetPlus, Sender};
 
 enum AppMsg {
     SetCompleted((usize, bool)),
@@ -98,14 +99,18 @@ impl AppUpdate for AppModel {
 #[relm4::widget]
 impl Widgets<AppModel, ()> for AppWidgets {
     view! {
-        main_window = gtk::ApplicationWindow {
+        main_window = adw::ApplicationWindow {
             set_width_request: 360,
-            set_title: Some("To-Do"),
+            // set_title: Some("To-Do"),
 
-            set_child = Some(&gtk::Box) {
+            set_content: main_box = Some(&gtk::Box) {
                 set_orientation: gtk::Orientation::Vertical,
-                set_margin_all: 12,
-                set_spacing: 6,
+                // set_margin_all: 12,
+                // set_spacing: 6,
+
+                append = &adw::HeaderBar {
+                    set_title_widget: Some(&gtk::Label::new(Some("To-Do"))),
+                },
 
                 append = &gtk::Entry {
                     connect_activate(sender) => move |entry| {
@@ -114,7 +119,6 @@ impl Widgets<AppModel, ()> for AppWidgets {
                         buffer.delete_text(0, None);
                     }
                 },
-
                 append = &gtk::ScrolledWindow {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
                     set_min_content_height: 360,
@@ -124,8 +128,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
                     }
                 }
             }
-
-        }
+        } // Application Window
     }
 }
 
