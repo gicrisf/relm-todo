@@ -1,0 +1,140 @@
+use gtk::prelude::{BoxExt, WidgetExt, OrientableExt, GtkWindowExt, EntryExt, EntryBufferExtManual, CheckButtonExt};
+use relm4::factory::{FactoryPrototype, FactoryVec};
+use relm4::{gtk, send, Model, AppUpdate, RelmApp, Widgets, WidgetPlus, Sender};
+
+enum AppMsg {
+    SetCompleted((usize, bool)),
+    AddEntry(String),
+}
+
+struct Task {
+    name: String,
+    completed: bool,
+}
+
+#[derive(Debug)]
+struct TaskWidgets {
+    label: gtk::Label,
+    hbox: gtk::Box,
+}
+
+impl FactoryPrototype for Task {
+    type View = gtk::ListBox;
+    type Msg = AppMsg;
+    type Factory = FactoryVec<Task>;
+    type Widgets = TaskWidgets;
+    type Root = gtk::Box;
+
+    fn init_view(&self, key: &usize, sender: Sender<Self::Msg>) -> Self::Widgets {
+        let hbox = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).build();
+        let label = gtk::Label::new(Some(&self.name));
+        let checkbox = gtk::CheckButton::builder().active(false).build();
+
+        assert!(!self.completed);
+
+        checkbox.set_margin_all(12);
+        label.set_margin_all(12);
+
+        hbox.append(&checkbox);
+        hbox.append(&label);
+
+        let index = *key;
+        checkbox.connect_toggled(move |checkbox| {
+            send!(sender, AppMsg::SetCompleted((index, checkbox.is_active())));
+        });
+
+        TaskWidgets { label, hbox }
+    } // ./init_view
+
+    fn position(&self, _key: &usize) {}
+
+    fn view(&self, _key: &usize, widgets: &Self::Widgets) {
+        let attrs = widgets.label.attributes().unwrap_or_default();
+        attrs.change(gtk::pango::AttrInt::new_strikethrough(self.completed));
+        widgets.label.set_attributes(Some(&attrs));
+    } // ./ view
+
+    fn root_widget(widgets: &Self::Widgets) -> &Self::Root {
+        &widgets.hbox
+    }  // ./root_widgets
+} // ./Task's Prototype
+
+
+// -- Model
+//
+struct AppModel {
+    tasks: FactoryVec<Task>,
+}
+
+impl Model for AppModel {
+    type Msg = AppMsg;
+    type Widgets = AppWidgets;
+    type Components = ();
+}
+
+// -- Update
+
+impl AppUpdate for AppModel {
+    fn update(&mut self, msg: AppMsg, _components: &(), _sender: Sender<AppMsg>) -> bool {
+        match msg {
+            AppMsg::SetCompleted((index, completed)) => {
+                if let Some(task) = self.tasks.get_mut(index) {
+                    task.completed = completed;
+                }
+            }
+            AppMsg::AddEntry(name) => {
+                self.tasks.push(Task {
+                    name,
+                    completed: false,
+                })
+            }
+        }  // ./msg
+        true
+    } // ./update
+}
+
+// -- View
+
+#[relm4::widget]
+impl Widgets<AppModel, ()> for AppWidgets {
+    view! {
+        main_window = gtk::ApplicationWindow {
+            set_width_request: 360,
+            set_title: Some("To-Do"),
+
+            set_child = Some(&gtk::Box) {
+                set_orientation: gtk::Orientation::Vertical,
+                set_margin_all: 12,
+                set_spacing: 6,
+
+                append = &gtk::Entry {
+                    connect_activate(sender) => move |entry| {
+                        let buffer = entry.buffer();
+                        send!(sender, AppMsg::AddEntry(buffer.text()));
+                        buffer.delete_text(0, None);
+                    }
+                },
+
+                append = &gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                    set_min_content_height: 360,
+                    set_vexpand: true,
+                    set_child = Some(&gtk::ListBox) {
+                        factory!(model.tasks),
+                    }
+                }
+            }
+
+        }
+    }
+}
+
+// -- Main
+
+fn main() {
+    let model = AppModel {
+        tasks: FactoryVec::new(),
+    };
+    let relm = RelmApp::new(model);
+    relm.run();
+}
