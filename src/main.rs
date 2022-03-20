@@ -1,6 +1,6 @@
 use adw::prelude::*;
 use gtk::prelude::{BoxExt, WidgetExt, OrientableExt, EntryExt, EntryBufferExtManual, CheckButtonExt};
-use relm4::factory::{FactoryPrototype, FactoryVec};
+use relm4::factory::{DynamicIndex, FactoryPrototype, FactoryVecDeque, WeakDynamicIndex};
 use relm4::{adw, gtk, send, Model, AppUpdate, RelmComponent, RelmApp, Widgets, WidgetPlus, Sender};
 
 mod header_component;
@@ -14,8 +14,8 @@ enum AppMode {
 
 enum AppMsg {
     SetMode(AppMode),
-    SetCompleted((usize, bool)),
-    AddEntry(String),
+    SetCompleted((WeakDynamicIndex, bool)),
+    AddFirst(String),
 }
 
 struct Task {
@@ -30,13 +30,13 @@ struct TaskWidgets {
 }
 
 impl FactoryPrototype for Task {
-    type View = gtk::ListBox;
+    type View = gtk::Box;
     type Msg = AppMsg;
-    type Factory = FactoryVec<Task>;
+    type Factory = FactoryVecDeque<Task>;
     type Widgets = TaskWidgets;
     type Root = gtk::Box;
 
-    fn init_view(&self, key: &usize, sender: Sender<Self::Msg>) -> Self::Widgets {
+    fn init_view(&self, key: &DynamicIndex, sender: Sender<Self::Msg>) -> Self::Widgets {
         let hbox = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).build();
         let label = gtk::Label::new(Some(&self.name));
         let checkbox = gtk::CheckButton::builder().active(false).build();
@@ -49,17 +49,17 @@ impl FactoryPrototype for Task {
         hbox.append(&checkbox);
         hbox.append(&label);
 
-        let index = *key;
+        let index: DynamicIndex = key.clone();
         checkbox.connect_toggled(move |checkbox| {
-            send!(sender, AppMsg::SetCompleted((index, checkbox.is_active())));
+            send!(sender, AppMsg::SetCompleted((index.downgrade(), checkbox.is_active())));
         });
 
         TaskWidgets { label, hbox }
     } // ./init_view
 
-    fn position(&self, _key: &usize) {}
+    fn position(&self, _key: &DynamicIndex) {}
 
-    fn view(&self, _key: &usize, widgets: &Self::Widgets) {
+    fn view(&self, _key: &DynamicIndex, widgets: &Self::Widgets) {
         let attrs = widgets.label.attributes().unwrap_or_default();
         attrs.change(gtk::pango::AttrInt::new_strikethrough(self.completed));
         widgets.label.set_attributes(Some(&attrs));
@@ -79,7 +79,7 @@ struct AppComponents {
 }
 
 struct AppModel {
-    tasks: FactoryVec<Task>,
+    tasks: FactoryVecDeque<Task>,
     mode: AppMode,
 }
 
@@ -97,17 +97,19 @@ impl AppUpdate for AppModel {
             AppMsg::SetMode(mode) => {
                 self.mode = mode;
             }
-            AppMsg::SetCompleted((index, completed)) => {
-                if let Some(task) = self.tasks.get_mut(index) {
-                    task.completed = completed;
+            AppMsg::SetCompleted((weak_index, completed)) => {
+                if let Some(index) = weak_index.upgrade() {
+                    if let Some(task) = self.tasks.get_mut(index.current_index()) {
+                        task.completed = completed;
+                    }
                 }
             }
-            AppMsg::AddEntry(name) => {
-                self.tasks.push(Task {
+            AppMsg::AddFirst(name) => {
+                self.tasks.push_front(Task {
                     name,
                     completed: false,
                 })
-            }
+            }  // AddFirst
         }  // ./msg
         true
     } // ./update
@@ -132,7 +134,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
                     set_margin_all: 12,
                     connect_activate(sender) => move |entry| {
                         let buffer = entry.buffer();
-                        send!(sender, AppMsg::AddEntry(buffer.text()));
+                        send!(sender, AppMsg::AddFirst(buffer.text()));
                         buffer.delete_text(0, None);
                     }
                 },
@@ -140,7 +142,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
                     set_min_content_height: 360,
                     set_vexpand: true,
-                    set_child = Some(&gtk::ListBox) {
+                    set_child = Some(&gtk::Box) {
                         factory!(model.tasks),
                     }
                 }
@@ -153,7 +155,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
 
 fn main() {
     let model = AppModel {
-        tasks: FactoryVec::new(),
+        tasks: FactoryVecDeque::new(),
         mode: AppMode::View,
     };
     let relm = RelmApp::new(model);
