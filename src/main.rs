@@ -1,9 +1,95 @@
 use adw::prelude::*;
-use gtk::prelude::{BoxExt, WidgetExt, OrientableExt, GtkWindowExt, EntryExt, EntryBufferExtManual, CheckButtonExt};
+use gtk::prelude::{BoxExt, WidgetExt, OrientableExt, EntryExt, EntryBufferExtManual, CheckButtonExt};
 use relm4::factory::{FactoryPrototype, FactoryVec};
-use relm4::{adw, gtk, send, Model, AppUpdate, RelmApp, Widgets, WidgetPlus, Sender};
+use relm4::{adw, gtk, send, Model, AppUpdate, ComponentUpdate, RelmComponent, RelmApp, Widgets, WidgetPlus, Sender};
+
+enum HeaderMsg {
+    View,
+    Edit,
+    Export,
+}
+
+struct HeaderModel {}
+
+impl Model for HeaderModel {
+    type Msg = HeaderMsg;
+    type Widgets = HeaderWidgets;
+    type Components = ();
+}
+
+impl ComponentUpdate<AppModel> for HeaderModel {
+    fn init_model(_parent_model: &AppModel) -> Self {
+        HeaderModel {}
+    }
+
+    fn update(
+        &mut self,
+        msg: HeaderMsg,
+        _components: &(),
+        _sender: Sender<HeaderMsg>,
+        parent_sender: Sender<AppMsg>,
+    ) {
+        match msg {
+            HeaderMsg::View => {
+                send!(parent_sender, AppMsg::SetMode(AppMode::View));
+            }
+            HeaderMsg::Edit => {
+                send!(parent_sender, AppMsg::SetMode(AppMode::Edit));
+            }
+            HeaderMsg::Export => {
+                send!(parent_sender, AppMsg::SetMode(AppMode::Export));
+            }
+        }
+    }
+}
+
+#[relm4::widget]
+impl Widgets<HeaderModel, AppModel> for HeaderWidgets {
+    view! {
+        gtk::HeaderBar {
+            set_title_widget = Some(&gtk::Box) {
+                add_css_class: "linked",
+                append: group = &gtk::ToggleButton {
+                    set_label: "View",
+                    set_active: true,
+                    connect_toggled(sender) => move |btn| {
+                        if btn.is_active() {
+                            send!(sender, HeaderMsg::View);
+                        }
+                    }
+                },
+                append = &gtk::ToggleButton {
+                    set_label: "Edit",
+                    set_group: Some(&group),
+                    connect_toggled(sender) => move |btn| {
+                        if btn.is_active() {
+                            send!(sender, HeaderMsg::Edit);
+                        }
+                    }
+                },
+                append = &gtk::ToggleButton {
+                    set_label: "Export",
+                    set_group: Some(&group),
+                    connect_toggled(sender) => move |btn| {
+                        if btn.is_active() {
+                            send!(sender, HeaderMsg::Export);
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+}
+
+enum AppMode {
+    View,
+    Edit,
+    Export,
+}
 
 enum AppMsg {
+    SetMode(AppMode),
     SetCompleted((usize, bool)),
     AddEntry(String),
 }
@@ -62,22 +148,31 @@ impl FactoryPrototype for Task {
 
 
 // -- Model
-//
+
+#[derive(relm4::Components)]
+struct AppComponents {
+    header: RelmComponent<HeaderModel, AppModel>
+}
+
 struct AppModel {
     tasks: FactoryVec<Task>,
+    mode: AppMode,
 }
 
 impl Model for AppModel {
     type Msg = AppMsg;
     type Widgets = AppWidgets;
-    type Components = ();
+    type Components = AppComponents;
 }
 
 // -- Update
 
 impl AppUpdate for AppModel {
-    fn update(&mut self, msg: AppMsg, _components: &(), _sender: Sender<AppMsg>) -> bool {
+    fn update(&mut self, msg: AppMsg, _components: &AppComponents, _sender: Sender<AppMsg>) -> bool {
         match msg {
+            AppMsg::SetMode(mode) => {
+                self.mode = mode;
+            }
             AppMsg::SetCompleted((index, completed)) => {
                 if let Some(task) = self.tasks.get_mut(index) {
                     task.completed = completed;
@@ -101,18 +196,16 @@ impl Widgets<AppModel, ()> for AppWidgets {
     view! {
         main_window = adw::ApplicationWindow {
             set_width_request: 360,
-            // set_title: Some("To-Do"),
+            set_title: Some("To-Do"),
 
             set_content: main_box = Some(&gtk::Box) {
                 set_orientation: gtk::Orientation::Vertical,
-                // set_margin_all: 12,
-                // set_spacing: 6,
 
                 append = &adw::HeaderBar {
                     set_title_widget: Some(&gtk::Label::new(Some("To-Do"))),
                 },
-
                 append = &gtk::Entry {
+                    set_margin_all: 12,
                     connect_activate(sender) => move |entry| {
                         let buffer = entry.buffer();
                         send!(sender, AppMsg::AddEntry(buffer.text()));
@@ -137,6 +230,7 @@ impl Widgets<AppModel, ()> for AppWidgets {
 fn main() {
     let model = AppModel {
         tasks: FactoryVec::new(),
+        mode: AppMode::View,
     };
     let relm = RelmApp::new(model);
     relm.run();
